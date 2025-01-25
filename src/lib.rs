@@ -4,6 +4,14 @@ pub struct Lexer<'a> {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum LexError {
+    UnknownToken((usize, usize)),
+    InvalidStringLit(usize),
+    UnLexable,
+    NeedInput,
+}
+
+#[derive(Debug, PartialEq)]
 #[rustfmt::skip]
 pub enum TokenType {
     // Keywords
@@ -88,14 +96,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn unknown(&self) -> Token {
-        Token {
-            ty: TokenType::Unknown,
-            len: self.source.len(),
-            start: self.at,
-        }
-    }
-
     fn token(&mut self, ty: TokenType, len: usize) -> Token {
         Token {
             ty,
@@ -110,63 +110,74 @@ impl<'a> Lexer<'a> {
         self.at += len_before - self.source.len();
     }
 
-    pub fn next_token(&mut self) -> Token {
+    fn literal(&mut self) -> Result<Token, LexError> {
+        self.string_literal()
+    }
+
+    fn string_literal(&mut self) -> Result<Token, LexError> {
+        let '"' = self.source.chars().next().ok_or(LexError::NeedInput)? else {
+            return Err(LexError::UnLexable);
+        };
+
+        let end = self.source[1..]
+            .find(['"', '\n'])
+            .ok_or(LexError::InvalidStringLit(self.at))?
+            + 1;
+
+        let '"' = self.source.chars().nth(end).unwrap() else {
+            return Err(LexError::InvalidStringLit(self.at));
+        };
+
+        Ok(self.token(TokenType::StringLit, end + 1))
+    }
+
+    fn identifier(&mut self) -> Result<Token, LexError> {
+        let c_ident_pat = |c: char| c.is_ascii_alphanumeric() || c == '_';
+
+        let fst = self.source.chars().next().ok_or(LexError::NeedInput)?;
+        if !c_ident_pat(fst) {
+            return Err(LexError::UnLexable);
+        }
+
+        if let Some(len) = self.source.find(|c| !c_ident_pat(c)) {
+            Ok(self.token(TokenType::Identifier, len))
+        } else if self.source.chars().all(c_ident_pat) {
+            Ok(self.token(TokenType::Identifier, self.source.len()))
+        } else {
+            Err(LexError::UnLexable)
+        }
+    }
+
+    fn punctuator(&mut self) -> Result<Token, LexError> {
+        let three = self.source.get(..3).unwrap_or("");
+        let two = self.source.get(..2).unwrap_or("");
+        let one = self.source.get(..1).unwrap_or("");
+
+        three_punctuator(three)
+            .map(|tokenty| (tokenty, 3))
+            .or(two_punctuator(two).map(|tokenty| (tokenty, 2)))
+            .or(one_punctuator(one).map(|tokenty| (tokenty, 1)))
+            .ok_or(LexError::UnLexable)
+            .map(|(ty, len)| self.token(ty, len))
+    }
+
+    pub fn next_token(&mut self) -> Result<Token, LexError> {
         if self.source.is_empty() {
-            return self.eof();
+            return Ok(self.eof());
         }
 
         self.skip_whitespace();
 
-        punctuator(self.source)
-            .or_else(|| literal(self.source))
-            .or_else(|| identifier(self.source))
-            .map(|(ty, len)| self.token(ty, len))
-            .unwrap_or_else(|| self.unknown())
+        self.punctuator()
+            .or_else(|err| match err {
+                LexError::UnLexable => self.identifier(),
+                err => Err(err),
+            })
+            .or_else(|err| match err {
+                LexError::UnLexable => self.literal(),
+                err => Err(err),
+            })
     }
-}
-
-fn literal(src: &str) -> Option<(TokenType, usize)> {
-    string_literal(src)
-}
-
-fn string_literal(src: &str) -> Option<(TokenType, usize)> {
-    let '"' = src.chars().next()? else {
-        return None;
-    };
-
-    let end = src[1..].find(['"', '\n'])? + 1;
-
-    let '"' = src.chars().nth(end)? else {
-        return None;
-    };
-
-    Some((TokenType::StringLit, end + 1))
-}
-
-fn identifier(src: &str) -> Option<(TokenType, usize)> {
-    if src.chars().next().unwrap().is_ascii_digit() {
-        return None;
-    }
-
-    let c_ident_pat = |c: char| c.is_ascii_alphanumeric() || c == '_';
-
-    if let Some(len) = src.find(|c| !c_ident_pat(c)) {
-        Some((TokenType::Identifier, len))
-    } else if src.chars().all(c_ident_pat) {
-        Some((TokenType::Identifier, src.len()))
-    } else {
-        None
-    }
-}
-
-fn punctuator(src: &str) -> Option<(TokenType, usize)> {
-    let three = src.get(..3).unwrap_or("");
-    let two = src.get(..2).unwrap_or("");
-    let one = src.get(..1).unwrap_or("");
-    three_punctuator(three)
-        .map(|tokenty| (tokenty, 3))
-        .or(two_punctuator(two).map(|tokenty| (tokenty, 2)))
-        .or(one_punctuator(one).map(|tokenty| (tokenty, 1)))
 }
 
 fn three_punctuator(p: &str) -> Option<TokenType> {
