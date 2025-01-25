@@ -132,16 +132,17 @@ impl<'a> Lexer<'a> {
     }
 
     fn identifier(&mut self) -> Result<Token, LexError> {
-        let c_ident_pat = |c: char| c.is_ascii_alphanumeric() || c == '_';
+        let c_ident_nondigit = |c: char| c.is_ascii_alphabetic() || c == '_';
+        let c_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
 
         let fst = self.source.chars().next().ok_or(LexError::NeedInput)?;
-        if !c_ident_pat(fst) {
+        if !c_ident_nondigit(fst) {
             return Err(LexError::UnLexable);
         }
 
-        if let Some(len) = self.source.find(|c| !c_ident_pat(c)) {
+        if let Some(len) = self.source.find(|c| !c_ident(c)) {
             Ok(self.token(to_keyword(&self.source[..len]), len))
-        } else if self.source.chars().all(c_ident_pat) {
+        } else if self.source.chars().all(c_ident) {
             Ok(self.token(to_keyword(self.source), self.source.len()))
         } else {
             Err(LexError::UnLexable)
@@ -153,12 +154,15 @@ impl<'a> Lexer<'a> {
         let two = self.source.get(..2).unwrap_or("");
         let one = self.source.get(..1).unwrap_or("");
 
-        three_punctuator(three)
-            .map(|tokenty| (tokenty, 3))
-            .or(two_punctuator(two).map(|tokenty| (tokenty, 2)))
-            .or(one_punctuator(one).map(|tokenty| (tokenty, 1)))
-            .ok_or(LexError::UnLexable)
+        let three = three_punctuator(three).map(|tokenty| (tokenty, 3));
+        let two = two_punctuator(two).map(|tokenty| (tokenty, 2));
+        let one = one_punctuator(one).map(|tokenty| (tokenty, 1));
+
+        three
+            .or(two)
+            .or(one)
             .map(|(ty, len)| self.token(ty, len))
+            .ok_or(LexError::UnLexable)
     }
 
     pub fn next_token(&mut self) -> Result<Token, LexError> {
