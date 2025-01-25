@@ -36,35 +36,35 @@ pub enum TokenType {
 
     // Punctuators
 
-    // (    )
-    RBrac, LBrac,
-
-    // [    ]
-    RBBrac, LBBrac,
-
-    // {    }
-    RBrace, LBrace,
-
-    Dot,   Arrow,  Incr,
-    Decr,  Amp,    Star,
-    Plus,  Minus,  Tilde,
-    Bang,  Div,    Mod,
+    // (     )
+    RBrac,   LBrac,
+    // [     ]
+    RBBrac,  LBBrac,
+    // {     }
+    RBrace,  LBrace,
     // <<    >>
-    RShift,    LShift,
+    RShift,  LShift,
     // <     >
     RAngle,  LAngle,
 
-    Leq,           Geq,           Eq,
-    Neq,           Xor,           Or,
-    LAnd,          LOr,           Question,
-    Colon,         Terminate,     Ellipses,
-    Assign,        MulAssign,     DivAssign,
-    ModAssign,     AddAssign,     SubAssign,
-    LShiftAssign,  RShiftAssign,  AndAssign,
-    XorAssign,     OrAssign,      Comma,
-    Hash,
+    Dot,    Arrow,  Incr,
+    Decr,   Amp,    Star,
+    Plus,   Minus,  Tilde,
+    Bang,   Div,    Mod,
+    Leq,    Geq,    Eq,
+    Neq,    Xor,    Or,
+    LAnd,   LOr,    Colon,
+    Comma,  Hash,   Ellipses,
+
+    Question,   Terminate,  Assign,
+    MulAssign,  DivAssign,  ModAssign,
+    AddAssign,  SubAssign,  OrAssign,
+    AndAssign,  XorAssign,
+
+    RShiftAssign, LShiftAssign,
 
     Unknown,
+
     EOF,
 }
 
@@ -140,9 +140,9 @@ impl<'a> Lexer<'a> {
         }
 
         if let Some(len) = self.source.find(|c| !c_ident_pat(c)) {
-            Ok(self.token(TokenType::Identifier, len))
+            Ok(self.token(to_keyword(&self.source[..len]), len))
         } else if self.source.chars().all(c_ident_pat) {
-            Ok(self.token(TokenType::Identifier, self.source.len()))
+            Ok(self.token(to_keyword(self.source), self.source.len()))
         } else {
             Err(LexError::UnLexable)
         }
@@ -181,66 +181,113 @@ impl<'a> Lexer<'a> {
 }
 
 fn three_punctuator(p: &str) -> Option<TokenType> {
+    use TokenType::*;
     match p {
-        "..." => Some(TokenType::Ellipses),
-        "<<=" => Some(TokenType::LShiftAssign),
-        ">>=" => Some(TokenType::RShiftAssign),
+        "..." => Some(Ellipses),
+        "<<=" => Some(LShiftAssign),
+        ">>=" => Some(RShiftAssign),
         _ => None,
     }
 }
 
 fn two_punctuator(p: &str) -> Option<TokenType> {
+    use TokenType::*;
     match p {
-        "--" => Some(TokenType::Decr),
-        "++" => Some(TokenType::Incr),
-        "&&" => Some(TokenType::LAnd),
-        "||" => Some(TokenType::LOr),
-        "<=" => Some(TokenType::Leq),
-        ">=" => Some(TokenType::Geq),
-        "!=" => Some(TokenType::Neq),
-        "==" => Some(TokenType::Eq),
-        "->" => Some(TokenType::Arrow),
-        ">>" => Some(TokenType::RShift),
-        "<<" => Some(TokenType::LShift),
-        "+=" => Some(TokenType::AddAssign),
-        "-=" => Some(TokenType::SubAssign),
-        "*=" => Some(TokenType::MulAssign),
-        "/=" => Some(TokenType::DivAssign),
-        "%=" => Some(TokenType::ModAssign),
-        "^=" => Some(TokenType::XorAssign),
-        "&=" => Some(TokenType::AndAssign),
-        "|=" => Some(TokenType::OrAssign),
+        "--" => Some(Decr),
+        "++" => Some(Incr),
+        "&&" => Some(LAnd),
+        "||" => Some(LOr),
+        "<=" => Some(Leq),
+        ">=" => Some(Geq),
+        "!=" => Some(Neq),
+        "==" => Some(Eq),
+        "->" => Some(Arrow),
+        ">>" => Some(RShift),
+        "<<" => Some(LShift),
+        "+=" => Some(AddAssign),
+        "-=" => Some(SubAssign),
+        "*=" => Some(MulAssign),
+        "/=" => Some(DivAssign),
+        "%=" => Some(ModAssign),
+        "^=" => Some(XorAssign),
+        "&=" => Some(AndAssign),
+        "|=" => Some(OrAssign),
         _ => None,
     }
 }
 
 fn one_punctuator(p: &str) -> Option<TokenType> {
+    use TokenType::*;
     match p {
-        "(" => Some(TokenType::LBrac),
-        ")" => Some(TokenType::RBrac),
-        "[" => Some(TokenType::LBBrac),
-        "]" => Some(TokenType::RBBrac),
-        "{" => Some(TokenType::LBrace),
-        "}" => Some(TokenType::RBrace),
-        "?" => Some(TokenType::Question),
-        "~" => Some(TokenType::Tilde),
-        ";" => Some(TokenType::Terminate),
-        ":" => Some(TokenType::Colon),
-        "," => Some(TokenType::Comma),
-        "<" => Some(TokenType::LAngle),
-        ">" => Some(TokenType::RAngle),
-        "." => Some(TokenType::Dot),
-        "-" => Some(TokenType::Minus),
-        "+" => Some(TokenType::Plus),
-        "/" => Some(TokenType::Div),
-        "&" => Some(TokenType::Amp),
-        "|" => Some(TokenType::Or),
-        "*" => Some(TokenType::Star),
-        "%" => Some(TokenType::Mod),
-        "^" => Some(TokenType::Xor),
-        "!" => Some(TokenType::Bang),
-        "=" => Some(TokenType::Assign),
-        "#" => Some(TokenType::Hash),
+        "(" => Some(LBrac),
+        ")" => Some(RBrac),
+        "[" => Some(LBBrac),
+        "]" => Some(RBBrac),
+        "{" => Some(LBrace),
+        "}" => Some(RBrace),
+        "?" => Some(Question),
+        "~" => Some(Tilde),
+        ";" => Some(Terminate),
+        ":" => Some(Colon),
+        "," => Some(Comma),
+        "<" => Some(LAngle),
+        ">" => Some(RAngle),
+        "." => Some(Dot),
+        "-" => Some(Minus),
+        "+" => Some(Plus),
+        "/" => Some(Div),
+        "&" => Some(Amp),
+        "|" => Some(Or),
+        "*" => Some(Star),
+        "%" => Some(Mod),
+        "^" => Some(Xor),
+        "!" => Some(Bang),
+        "=" => Some(Assign),
+        "#" => Some(Hash),
         _ => None,
+    }
+}
+
+fn to_keyword(p: &str) -> TokenType {
+    use TokenType::*;
+    match p {
+        "auto" => Auto,
+        "break" => Break,
+        "case" => Case,
+        "char" => Char,
+        "const" => Const,
+        "continue" => Continue,
+        "default" => Default,
+        "do" => Do,
+        "double" => Double,
+        "else" => Else,
+        "enum" => Enum,
+        "extern" => Extern,
+        "float" => Float,
+        "for" => For,
+        "goto" => Goto,
+        "if" => If,
+        "inline" => Inline,
+        "int" => Int,
+        "long" => Long,
+        "register" => Register,
+        "restrict" => Restrict,
+        "return" => Return,
+        "short" => Short,
+        "signed" => Signed,
+        "sizeof" => Sizeof,
+        "static" => Static,
+        "struct" => Struct,
+        "switch" => Switch,
+        "typedef" => Typedef,
+        "union" => Union,
+        "unsigned" => Unsigned,
+        "void" => Void,
+        "volatile" => Volatile,
+        "while" => While,
+        "_Bool" => _Bool,
+        "_Complex" => _Complex,
+        "_Imaginary" => _Imaginary,
+        _ => Identifier,
     }
 }

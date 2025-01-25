@@ -2,6 +2,7 @@ use klang::{LexError, Lexer, Token, TokenType};
 use LexError::*;
 use TokenType::*;
 
+// {{{ Macros
 macro_rules! t {
     ($lex:ident => $token:ident at [$start:expr, $len:expr]) => {
         assert_eq!(
@@ -19,21 +20,38 @@ macro_rules! t {
 }
 
 macro_rules! lex {
-    ($src:literal => $tokens:expr, $len:expr) => {{
+    (concat($($src:literal),+) => $tokens:expr) => {{
+        let source = concat!($($src),+);
+        let mut lex = Lexer::new(source);
+
+        let mut start = 0;
+        for (token, rtoken) in $tokens
+            .into_iter()
+            .zip(source.split_whitespace())
+        {
+            t!(lex => token at [start, rtoken.len()]);
+            start += 1 + rtoken.len();
+        }
+
+        t!(lex => EOF at [source.len(), 0]);
+    }};
+    ($src:literal => $tokens:expr) => {{
         let source = $src;
         let mut lex = Lexer::new(source);
 
-        for (start, len, token) in $tokens
+        let mut start = 0;
+        for (token, rtoken) in $tokens
             .into_iter()
-            .enumerate()
-            .map(|(i, token)| (($len+1) * i, $len, token))
+            .zip(source.split_whitespace())
         {
-            t!(lex => token at [start, len]);
+            t!(lex => token at [start, rtoken.len()]);
+            start += 1 + rtoken.len();
         }
 
         t!(lex => EOF at [source.len(), 0]);
     }};
 }
+// }}}
 
 #[test]
 fn single_byte_tokens() {
@@ -42,7 +60,7 @@ fn single_byte_tokens() {
         Question, Tilde, Terminate, Colon,  Comma,  LAngle,
         RAngle,   Dot,   Minus,     Plus,   Div,    Amp,
         Or,       Star,  Mod,       Xor,    Bang,   Hash, Assign,
-    ], 1);
+    ]);
 }
 
 #[test]
@@ -52,26 +70,32 @@ fn two_byte_tokens() {
         Geq,       Neq,       Eq,        Arrow,     RShift,
         LShift,    AddAssign, SubAssign, MulAssign, DivAssign,
         ModAssign, XorAssign, AndAssign, OrAssign,
-    ], 2);
+    ]);
 }
 
 #[test]
 fn three_byte_tokens() {
-    lex!("... <<= >>=" => [Ellipses, LShiftAssign, RShiftAssign], 3);
+    lex!("... <<= >>=" => [Ellipses, LShiftAssign, RShiftAssign]);
+}
+
+#[test]
+fn keyword_tokens() {
+    lex!(concat(
+        "auto break case char const continue default do double else ",
+        "enum extern float for goto if inline int long register restrict ",
+        "return short signed sizeof static struct switch typedef union ",
+        "unsigned void volatile while _Bool _Complex _Imaginary"
+    ) => [
+        Auto, Break, Case, Char, Const, Continue, Default, Do, Double, Else, Enum, Extern, Float,
+        For, Goto, If, Inline, Int, Long, Register, Restrict, Return, Short, Signed, Sizeof,
+        Static, Struct, Switch, Typedef, Union, Unsigned, Void, Volatile, While, _Bool, _Complex,
+        _Imaginary,
+    ]);
 }
 
 #[test]
 fn ident_tokens() {
-    let source = "__klang KLANG cogito_ergo_sum thing123";
-    let mut lex = Lexer::new(source);
-
-    let mut start = 0;
-    for ident in source.split(' ') {
-        t!(lex => Identifier at [start, ident.len()]);
-        start += ident.len() + 1;
-    }
-
-    t!(lex => EOF at [source.len(), 0]);
+    lex!("__klang KLANG cogito_ergo_sum thing123" => [Identifier, Identifier, Identifier, Identifier]);
 }
 
 #[test]
