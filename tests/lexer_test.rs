@@ -56,10 +56,10 @@ macro_rules! lex {
 #[test]
 fn single_byte_tokens() {
     lex!("( ) [ ] { } ? ~ ; : , < > . - + / & | * % ^ ! # =" => [
-        LBrac,    RBrac, LBBrac,    RBBrac, LBrace, RBrace,
-        Question, Tilde, Terminate, Colon,  Comma,  LAngle,
-        RAngle,   Dot,   Minus,     Plus,   Div,    Amp,
-        Or,       Star,  Mod,       Xor,    Bang,   Hash, Assign,
+        LParen,   RParen, LSquare,   RSquare, LBrace, RBrace,
+        Question, Tilde,  Terminate, Colon,   Comma,  LAngle,
+        RAngle,   Dot,    Minus,     Plus,    Div,    Amp,
+        Or,       Star,   Mod,       Xor,     Bang,   Hash, Assign,
     ]);
 }
 

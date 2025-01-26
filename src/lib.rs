@@ -37,9 +37,9 @@ pub enum TokenType {
     // Punctuators
 
     // (     )
-    RBrac,   LBrac,
+    RParen,   LParen,
     // [     ]
-    RBBrac,  LBBrac,
+    RSquare,  LSquare,
     // {     }
     RBrace,  LBrace,
     // <<    >>
@@ -80,6 +80,8 @@ macro_rules! lex {
             Err(LexError::UnLexable) => {},
             Err(err) => return Err(err)
         })*
+
+        return Err(LexError::UnknownToken(($self.at, $self.source.len())));
     };
 }
 
@@ -118,10 +120,6 @@ impl<'a> Lexer<'a> {
         self.at += len_before - self.source.len();
     }
 
-    fn literal(&mut self) -> Result<Token, LexError> {
-        self.string_literal()
-    }
-
     fn string_literal(&mut self) -> Result<Token, LexError> {
         let '"' = self.source.chars().next().ok_or(LexError::NeedInput)? else {
             return Err(LexError::UnLexable);
@@ -137,6 +135,18 @@ impl<'a> Lexer<'a> {
         };
 
         Ok(self.token(TokenType::StringLit, end + 1))
+    }
+
+    fn int_literal(&mut self) -> Result<Token, LexError> {
+        Err(LexError::UnLexable)
+    }
+
+    fn float_literal(&mut self) -> Result<Token, LexError> {
+        Err(LexError::UnLexable)
+    }
+
+    fn char_literal(&mut self) -> Result<Token, LexError> {
+        Err(LexError::UnLexable)
     }
 
     fn identifier(&mut self) -> Result<Token, LexError> {
@@ -181,12 +191,13 @@ impl<'a> Lexer<'a> {
         self.skip_whitespace();
 
         lex!(self,
-        token: punctuator |
-               identifier |
-               literal
+        token: punctuator     |
+               string_literal |
+               int_literal    |
+               float_literal  |
+               char_literal   |
+               identifier
         );
-
-        Err(LexError::UnknownToken((self.at, self.source.len())))
     }
 }
 
@@ -229,10 +240,10 @@ fn two_punctuator(p: &str) -> Option<TokenType> {
 fn one_punctuator(p: &str) -> Option<TokenType> {
     use TokenType::*;
     match p {
-        "(" => Some(LBrac),
-        ")" => Some(RBrac),
-        "[" => Some(LBBrac),
-        "]" => Some(RBBrac),
+        "(" => Some(LParen),
+        ")" => Some(RParen),
+        "[" => Some(LSquare),
+        "]" => Some(RSquare),
         "{" => Some(LBrace),
         "}" => Some(RBrace),
         "?" => Some(Question),
