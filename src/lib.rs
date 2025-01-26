@@ -63,8 +63,6 @@ pub enum TokenType {
 
     RShiftAssign, LShiftAssign,
 
-    Unknown,
-
     EOF,
 }
 
@@ -73,6 +71,16 @@ pub struct Token {
     pub ty: TokenType,
     pub start: usize,
     pub len: usize,
+}
+
+macro_rules! lex {
+    ($self:ident, token: $($rule:ident)|*) => {
+        $(match Lexer::$rule($self) {
+            Ok(token) => return Ok(token),
+            Err(LexError::UnLexable) => {},
+            Err(err) => return Err(err)
+        })*
+    };
 }
 
 impl<'a> Lexer<'a> {
@@ -172,15 +180,13 @@ impl<'a> Lexer<'a> {
 
         self.skip_whitespace();
 
-        self.punctuator()
-            .or_else(|err| match err {
-                LexError::UnLexable => self.identifier(),
-                err => Err(err),
-            })
-            .or_else(|err| match err {
-                LexError::UnLexable => self.literal(),
-                err => Err(err),
-            })
+        lex!(self,
+        token: punctuator |
+               identifier |
+               literal
+        );
+
+        Err(LexError::UnknownToken((self.at, self.source.len())))
     }
 }
 
