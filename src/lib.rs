@@ -1,5 +1,5 @@
 pub struct Lexer<'a> {
-    source: &'a str,
+    source: &'a [u8],
     at: usize,
 }
 
@@ -29,8 +29,15 @@ pub enum TokenType {
     Identifier,
 
     // Constants
-    IntLit,
-    FloatLit,
+    OctIntLit,
+    DecIntLit,
+    HexIntLit,
+    IntLitSuffix,
+
+    DecFloatLit,
+    HexFloatLit,
+    FloatLitSuffix,
+
     CharLit,
     StringLit,
 
@@ -73,6 +80,15 @@ pub struct Token {
     pub len: usize,
 }
 
+impl Token {
+    fn fuse(mut self, other: Result<Token, LexError>) -> Token {
+        if let Ok(token) = other {
+            self.len += token.len;
+        }
+        self
+    }
+}
+
 macro_rules! lex {
     ($self:ident, token: $($rule:ident)|*) => {
         $(match Lexer::$rule($self) {
@@ -86,15 +102,16 @@ macro_rules! lex {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(source: &'a str) -> Self {
+    pub fn new(source: &'a [u8]) -> Self {
         Self { source, at: 0 }
     }
 
     fn advance_by(&mut self, len: usize) -> usize {
-        let start = self.at;
-        self.at += len;
         let (_, rest) = self.source.split_at(len);
         self.source = rest;
+
+        let start = self.at;
+        self.at += len;
         start
     }
 
@@ -121,16 +138,17 @@ impl<'a> Lexer<'a> {
     }
 
     fn string_literal(&mut self) -> Result<Token, LexError> {
-        let '"' = self.source.chars().next().ok_or(LexError::NeedInput)? else {
+        let b'"' = self.source.iter().next().ok_or(LexError::NeedInput)? else {
             return Err(LexError::UnLexable);
         };
 
-        let end = self.source[1..]
-            .find(['"', '\n'])
+        let end = &self.source[1..]
+            .iter()
+            .position(|b| *b == b'"' || *b == b'\n')
             .ok_or(LexError::InvalidStringLit(self.at))?
             + 1;
 
-        let '"' = self.source.chars().nth(end).unwrap() else {
+        let Some(b'"') = self.source.get(end) else {
             return Err(LexError::InvalidStringLit(self.at));
         };
 
@@ -138,6 +156,38 @@ impl<'a> Lexer<'a> {
     }
 
     fn int_literal(&mut self) -> Result<Token, LexError> {
+        let [fst, snd] = self.source.get(..2).ok_or(LexError::NeedInput)? else {
+            unreachable!()
+        };
+
+        let (itype, is_valid_digit): (TokenType, fn(&u8) -> bool) = match fst {
+            b'0' => {
+                if let b'x' | b'X' = snd {
+                    (TokenType::HexIntLit, |c| c.is_ascii_hexdigit())
+                } else {
+                    (TokenType::OctIntLit, |c| matches!(c, b'0'..=b'7'))
+                }
+            }
+            b'1'..=b'9' => (TokenType::DecIntLit, |c| c.is_ascii_digit()),
+            _ => return Err(LexError::UnLexable),
+        };
+
+        if !is_valid_digit(snd) && itype != TokenType::HexIntLit {
+            return Ok(self.token(itype, 1));
+        }
+
+        if let Some(len) = self.source[2..].iter().position(|c| !is_valid_digit(c)) {
+            let itoken = self.token(itype, len + 2);
+            let isuffix = self.int_suffix();
+            return Ok(itoken.fuse(isuffix));
+        }
+
+        if self.source[2..].iter().all(is_valid_digit) {
+            let itoken = self.token(itype, self.source.len());
+            let isuffix = self.int_suffix();
+            return Ok(itoken.fuse(isuffix));
+        }
+
         Err(LexError::UnLexable)
     }
 
@@ -150,35 +200,49 @@ impl<'a> Lexer<'a> {
     }
 
     fn identifier(&mut self) -> Result<Token, LexError> {
-        let c_ident_nondigit = |c: char| c.is_ascii_alphabetic() || c == '_';
-        let c_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+        let c_ident_nondigit = |c: &u8| matches!(c, b'a'..=b'z' | b'A'..=b'Z' | b'_');
+        let c_ident = |c: &u8| matches!(c, b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | b'_');
 
-        let fst = self.source.chars().next().ok_or(LexError::NeedInput)?;
+        let fst = self.source.first().ok_or(LexError::NeedInput)?;
         if !c_ident_nondigit(fst) {
             return Err(LexError::UnLexable);
         }
 
-        if let Some(len) = self.source.find(|c| !c_ident(c)) {
-            Ok(self.token(to_keyword(&self.source[..len]), len))
-        } else if self.source.chars().all(c_ident) {
-            Ok(self.token(to_keyword(self.source), self.source.len()))
-        } else {
-            Err(LexError::UnLexable)
+        if let Some(len) = self.source.iter().position(|c| !c_ident(c)) {
+            return Ok(self.token(to_keyword(&self.source[..len]), len));
         }
+
+        if self.source.iter().all(c_ident) {
+            return Ok(self.token(to_keyword(self.source), self.source.len()));
+        }
+
+        Err(LexError::UnLexable)
+    }
+
+    fn resolve_static_token(
+        &mut self,
+        three_token: fn(&[u8]) -> Option<TokenType>,
+        two_token: fn(&[u8]) -> Option<TokenType>,
+        one_token: fn(&[u8]) -> Option<TokenType>,
+    ) -> Option<(TokenType, usize)> {
+        let three = self.source.get(..3).unwrap_or(&[0]);
+        let two = self.source.get(..2).unwrap_or(&[0]);
+        let one = self.source.get(..1).unwrap_or(&[0]);
+
+        three_token(three)
+            .map(|ret| (ret, 3))
+            .or_else(|| two_token(two).map(|ret| (ret, 2)))
+            .or_else(|| one_token(one).map(|ret| (ret, 1)))
+    }
+
+    fn int_suffix(&mut self) -> Result<Token, LexError> {
+        self.resolve_static_token(three_isuffix, two_isuffix, one_isuffix)
+            .map(|(ty, len)| self.token(ty, len))
+            .ok_or(LexError::UnLexable)
     }
 
     fn punctuator(&mut self) -> Result<Token, LexError> {
-        let three = self.source.get(..3).unwrap_or("");
-        let two = self.source.get(..2).unwrap_or("");
-        let one = self.source.get(..1).unwrap_or("");
-
-        let three = three_punctuator(three).map(|tokenty| (tokenty, 3));
-        let two = two_punctuator(two).map(|tokenty| (tokenty, 2));
-        let one = one_punctuator(one).map(|tokenty| (tokenty, 1));
-
-        three
-            .or(two)
-            .or(one)
+        self.resolve_static_token(three_punctuator, two_punctuator, one_punctuator)
             .map(|(ty, len)| self.token(ty, len))
             .ok_or(LexError::UnLexable)
     }
@@ -193,122 +257,142 @@ impl<'a> Lexer<'a> {
         lex!(self,
         token: punctuator     |
                string_literal |
+               identifier     |
                int_literal    |
                float_literal  |
-               char_literal   |
-               identifier
+               char_literal
         );
     }
 }
 
-fn three_punctuator(p: &str) -> Option<TokenType> {
+fn three_isuffix(p: &[u8]) -> Option<TokenType> {
+    matches!(
+        p,
+        b"ull" | b"uLL" | b"Ull" | b"ULL" | b"llu" | b"llU" | b"LLu" | b"LLU"
+    )
+    .then_some(TokenType::IntLitSuffix)
+}
+
+fn two_isuffix(p: &[u8]) -> Option<TokenType> {
+    matches!(
+        p,
+        b"ll" | b"LL" | b"ul" | b"uL" | b"Ul" | b"UL" | b"lu" | b"lU" | b"Lu" | b"LU"
+    )
+    .then_some(TokenType::IntLitSuffix)
+}
+
+fn one_isuffix(p: &[u8]) -> Option<TokenType> {
+    matches!(p, b"l" | b"L" | b"u" | b"U").then_some(TokenType::IntLitSuffix)
+}
+
+fn three_punctuator(p: &[u8]) -> Option<TokenType> {
     use TokenType::*;
     match p {
-        "..." => Some(Ellipses),
-        "<<=" => Some(LShiftAssign),
-        ">>=" => Some(RShiftAssign),
+        b"..." => Some(Ellipses),
+        b"<<=" => Some(LShiftAssign),
+        b">>=" => Some(RShiftAssign),
         _ => None,
     }
 }
 
-fn two_punctuator(p: &str) -> Option<TokenType> {
+fn two_punctuator(p: &[u8]) -> Option<TokenType> {
     use TokenType::*;
     match p {
-        "--" => Some(Decr),
-        "++" => Some(Incr),
-        "&&" => Some(LAnd),
-        "||" => Some(LOr),
-        "<=" => Some(Leq),
-        ">=" => Some(Geq),
-        "!=" => Some(Neq),
-        "==" => Some(Eq),
-        "->" => Some(Arrow),
-        ">>" => Some(RShift),
-        "<<" => Some(LShift),
-        "+=" => Some(AddAssign),
-        "-=" => Some(SubAssign),
-        "*=" => Some(MulAssign),
-        "/=" => Some(DivAssign),
-        "%=" => Some(ModAssign),
-        "^=" => Some(XorAssign),
-        "&=" => Some(AndAssign),
-        "|=" => Some(OrAssign),
+        b"--" => Some(Decr),
+        b"++" => Some(Incr),
+        b"&&" => Some(LAnd),
+        b"||" => Some(LOr),
+        b"<=" => Some(Leq),
+        b">=" => Some(Geq),
+        b"!=" => Some(Neq),
+        b"==" => Some(Eq),
+        b"->" => Some(Arrow),
+        b">>" => Some(RShift),
+        b"<<" => Some(LShift),
+        b"+=" => Some(AddAssign),
+        b"-=" => Some(SubAssign),
+        b"*=" => Some(MulAssign),
+        b"/=" => Some(DivAssign),
+        b"%=" => Some(ModAssign),
+        b"^=" => Some(XorAssign),
+        b"&=" => Some(AndAssign),
+        b"|=" => Some(OrAssign),
         _ => None,
     }
 }
 
-fn one_punctuator(p: &str) -> Option<TokenType> {
+fn one_punctuator(p: &[u8]) -> Option<TokenType> {
     use TokenType::*;
     match p {
-        "(" => Some(LParen),
-        ")" => Some(RParen),
-        "[" => Some(LSquare),
-        "]" => Some(RSquare),
-        "{" => Some(LBrace),
-        "}" => Some(RBrace),
-        "?" => Some(Question),
-        "~" => Some(Tilde),
-        ";" => Some(Terminate),
-        ":" => Some(Colon),
-        "," => Some(Comma),
-        "<" => Some(LAngle),
-        ">" => Some(RAngle),
-        "." => Some(Dot),
-        "-" => Some(Minus),
-        "+" => Some(Plus),
-        "/" => Some(Div),
-        "&" => Some(Amp),
-        "|" => Some(Or),
-        "*" => Some(Star),
-        "%" => Some(Mod),
-        "^" => Some(Xor),
-        "!" => Some(Bang),
-        "=" => Some(Assign),
-        "#" => Some(Hash),
+        b"(" => Some(LParen),
+        b")" => Some(RParen),
+        b"[" => Some(LSquare),
+        b"]" => Some(RSquare),
+        b"{" => Some(LBrace),
+        b"}" => Some(RBrace),
+        b"?" => Some(Question),
+        b"~" => Some(Tilde),
+        b";" => Some(Terminate),
+        b":" => Some(Colon),
+        b"," => Some(Comma),
+        b"<" => Some(LAngle),
+        b">" => Some(RAngle),
+        b"." => Some(Dot),
+        b"-" => Some(Minus),
+        b"+" => Some(Plus),
+        b"/" => Some(Div),
+        b"&" => Some(Amp),
+        b"|" => Some(Or),
+        b"*" => Some(Star),
+        b"%" => Some(Mod),
+        b"^" => Some(Xor),
+        b"!" => Some(Bang),
+        b"=" => Some(Assign),
+        b"#" => Some(Hash),
         _ => None,
     }
 }
 
-fn to_keyword(p: &str) -> TokenType {
+fn to_keyword(p: &[u8]) -> TokenType {
     use TokenType::*;
     match p {
-        "auto" => Auto,
-        "break" => Break,
-        "case" => Case,
-        "char" => Char,
-        "const" => Const,
-        "continue" => Continue,
-        "default" => Default,
-        "do" => Do,
-        "double" => Double,
-        "else" => Else,
-        "enum" => Enum,
-        "extern" => Extern,
-        "float" => Float,
-        "for" => For,
-        "goto" => Goto,
-        "if" => If,
-        "inline" => Inline,
-        "int" => Int,
-        "long" => Long,
-        "register" => Register,
-        "restrict" => Restrict,
-        "return" => Return,
-        "short" => Short,
-        "signed" => Signed,
-        "sizeof" => Sizeof,
-        "static" => Static,
-        "struct" => Struct,
-        "switch" => Switch,
-        "typedef" => Typedef,
-        "union" => Union,
-        "unsigned" => Unsigned,
-        "void" => Void,
-        "volatile" => Volatile,
-        "while" => While,
-        "_Bool" => _Bool,
-        "_Complex" => _Complex,
-        "_Imaginary" => _Imaginary,
+        b"auto" => Auto,
+        b"break" => Break,
+        b"case" => Case,
+        b"char" => Char,
+        b"const" => Const,
+        b"continue" => Continue,
+        b"default" => Default,
+        b"do" => Do,
+        b"double" => Double,
+        b"else" => Else,
+        b"enum" => Enum,
+        b"extern" => Extern,
+        b"float" => Float,
+        b"for" => For,
+        b"goto" => Goto,
+        b"if" => If,
+        b"inline" => Inline,
+        b"int" => Int,
+        b"long" => Long,
+        b"register" => Register,
+        b"restrict" => Restrict,
+        b"return" => Return,
+        b"short" => Short,
+        b"signed" => Signed,
+        b"sizeof" => Sizeof,
+        b"static" => Static,
+        b"struct" => Struct,
+        b"switch" => Switch,
+        b"typedef" => Typedef,
+        b"union" => Union,
+        b"unsigned" => Unsigned,
+        b"void" => Void,
+        b"volatile" => Volatile,
+        b"while" => While,
+        b"_Bool" => _Bool,
+        b"_Complex" => _Complex,
+        b"_Imaginary" => _Imaginary,
         _ => Identifier,
     }
 }

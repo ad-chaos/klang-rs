@@ -22,7 +22,7 @@ macro_rules! t {
 macro_rules! lex {
     (concat($($src:literal),+) => $tokens:expr) => {{
         let source = concat!($($src),+);
-        let mut lex = Lexer::new(source);
+        let mut lex = Lexer::new(source.as_bytes());
 
         let mut start = 0;
         for (token, rtoken) in $tokens
@@ -37,7 +37,7 @@ macro_rules! lex {
     }};
     ($src:literal => $tokens:expr) => {{
         let source = $src;
-        let mut lex = Lexer::new(source);
+        let mut lex = Lexer::new(source.as_bytes());
 
         let mut start = 0;
         for (token, rtoken) in $tokens
@@ -106,7 +106,7 @@ fn string_tokens() {
 
     let source = s1.to_string() + "\t\n\r " + s2 + "\t\n\r " + s3;
 
-    let mut lex = Lexer::new(source.as_str());
+    let mut lex = Lexer::new(source.as_bytes());
 
     t!(lex => StringLit at [0,                       s1.len()]);
     t!(lex => StringLit at [4 + s1.len(),            s2.len()]);
@@ -116,9 +116,20 @@ fn string_tokens() {
 
 #[test]
 fn unterm_string_tokens() {
-    let mut lex = Lexer::new(r#""unterminated"#);
+    let mut lex = Lexer::new(r#""unterminated"#.as_bytes());
     t!(lex => InvalidStringLit(0));
 
-    let mut lex = Lexer::new("\"unterminated with new line\n\n\"");
+    let mut lex = Lexer::new("\"unterminated with new line\n\n\"".as_bytes());
     t!(lex => InvalidStringLit(0));
+}
+
+#[test]
+fn int_tokens() {
+    lex!(concat(
+        "123 0xabc 0777 0X123 0Xff 0xFF ",
+        "123uL 0xabcULL 0777llU 0X123LLu 0XffL 0xFFLL"
+    ) => [
+        DecIntLit, HexIntLit, OctIntLit, HexIntLit, HexIntLit, HexIntLit,
+        DecIntLit, HexIntLit, OctIntLit, HexIntLit, HexIntLit, HexIntLit
+    ]);
 }
