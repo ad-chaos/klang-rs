@@ -1,0 +1,22 @@
+hdigits = [0-9a-fa-F]+
+a = [0-9]+
+b = '.'
+fsuffix = 'f'|'l'|'F'|'L'
+
+dec_float = (digits? '.' digits) | (digits '.') ('e'|'E' '+'|'-'? digits)? fsuffix?
+             digits 'e' '+'|'-'? digits fsuffix?
+
+hex_float = '0x'|'0X' (hex_digits? '.' hex_digits) | (hex_digits '.') ('p'|'P' '+'|'-'? [0-9]) fsuffix?
+            '0x'|'0X' hex_digits ('p'|'P' '+'|'-'? dec_digits) fsuffix?
+
+
+dec_float = a-b-a      | -b-a      | a-b
+            a-b-a-     | -b-a-     | a-b-
+            a-b-a-ea   | -b-a-ea   | a-b-ea
+            a-b-a-esa  | -b-a-esa  | a-b-esa
+            a-e-a      | a-e-s-a   | a-e-a-
+
+hex_float = h-b-h-pa   | -b-h-pa   | h-b-pa
+            h-b-h-psa  | -b-h-psa  | h-b-psa
+            h-p-a      | h-p-sa    | h-p-a
+
