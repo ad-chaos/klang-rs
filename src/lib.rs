@@ -3,7 +3,7 @@ pub struct Lexer<'a> {
     at: usize,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum LexError {
     UnknownToken((usize, usize)),
     InvalidStringLit(usize),
@@ -11,7 +11,7 @@ pub enum LexError {
     NeedInput,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 #[rustfmt::skip]
 pub enum TokenType {
     // Keywords
@@ -73,7 +73,7 @@ pub enum TokenType {
     EOF,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct Token {
     pub ty: TokenType,
     pub start: usize,
@@ -85,6 +85,11 @@ impl Token {
         if let Ok(token) = other {
             self.len += token.len;
         }
+        self
+    }
+
+    fn as_type(mut self, ty: TokenType) -> Token {
+        self.ty = ty;
         self
     }
 }
@@ -155,44 +160,142 @@ impl<'a> Lexer<'a> {
         Ok(self.token(TokenType::StringLit, end + 1))
     }
 
-    fn int_literal(&mut self) -> Result<Token, LexError> {
-        let [fst, snd] = self.source.get(..2).ok_or(LexError::NeedInput)? else {
-            unreachable!()
+    fn float_int_digits(&mut self, itype: TokenType) -> Result<Token, LexError> {
+        let is_valid_digit: fn(&u8) -> bool = match itype {
+            TokenType::HexIntLit => |c| c.is_ascii_hexdigit(),
+            TokenType::OctIntLit | TokenType::DecIntLit => |c| c.is_ascii_digit(),
+            _ => unreachable!(),
         };
 
-        let (itype, is_valid_digit): (TokenType, fn(&u8) -> bool) = match fst {
-            b'0' => {
-                if let b'x' | b'X' = snd {
-                    (TokenType::HexIntLit, |c| c.is_ascii_hexdigit())
-                } else {
-                    (TokenType::OctIntLit, |c| matches!(c, b'0'..=b'7'))
-                }
-            }
-            b'1'..=b'9' => (TokenType::DecIntLit, |c| c.is_ascii_digit()),
-            _ => return Err(LexError::UnLexable),
-        };
-
-        if !is_valid_digit(snd) && itype != TokenType::HexIntLit {
-            return Ok(self.token(itype, 1));
+        match self.source.iter().position(|c| !is_valid_digit(c)) {
+            Some(len) if len > 0 => return Ok(self.token(itype, len)),
+            _ => {}
         }
 
-        if let Some(len) = self.source[2..].iter().position(|c| !is_valid_digit(c)) {
-            let itoken = self.token(itype, len + 2);
-            let isuffix = self.int_suffix();
-            return Ok(itoken.fuse(isuffix));
-        }
-
-        if self.source[2..].iter().all(is_valid_digit) {
-            let itoken = self.token(itype, self.source.len());
-            let isuffix = self.int_suffix();
-            return Ok(itoken.fuse(isuffix));
+        if self.source.iter().all(is_valid_digit) {
+            return Ok(self.token(itype, self.source.len()));
         }
 
         Err(LexError::UnLexable)
     }
 
+    fn int_prefixed_digits(&mut self) -> Result<Token, LexError> {
+        let fst = self.source.first().ok_or(LexError::NeedInput)?;
+        let Some(snd) = self.source.get(1) else {
+            if fst.is_ascii_digit() {
+                return Ok(self.token(TokenType::DecIntLit, 1));
+            }
+            return Err(LexError::UnLexable);
+        };
+
+        let (itype, is_valid_digit): (TokenType, fn(&u8) -> bool) = match (*fst, *snd) {
+            (b'0', b'x' | b'X') => (TokenType::HexIntLit, |c| c.is_ascii_hexdigit()),
+            (b'0', b'0'..=b'7') => (TokenType::OctIntLit, |c| matches!(c, b'0'..=b'7')),
+            (b'1'..=b'9', b'0'..=b'9') => (TokenType::DecIntLit, |c| c.is_ascii_digit()),
+            (b'0'..=b'9', _) => return Ok(self.token(TokenType::DecIntLit, 1)),
+            _ => return Err(LexError::UnLexable),
+        };
+
+        if let Some(len) = self.source[2..].iter().position(|c| !is_valid_digit(c)) {
+            Ok(self.token(itype, len + 2))
+        } else if self.source[2..].iter().all(is_valid_digit) {
+            Ok(self.token(itype, self.source.len()))
+        } else {
+            Err(LexError::UnLexable)
+        }
+    }
+
+    fn int_literal(&mut self) -> Result<Token, LexError> {
+        self.int_prefixed_digits()
+            .map(|token| token.fuse(self.isuffix()))
+    }
+
+    fn try_float(&mut self) -> Result<Token, LexError> {
+        let integer = self.int_prefixed_digits();
+
+        let itype = integer
+            .map(|token| token.ty)
+            .unwrap_or(TokenType::DecIntLit);
+        let is_hex = matches!(itype, TokenType::HexIntLit);
+
+        let dot = matches!(self.source.first(), Some(b'.'))
+            .then(|| self.token(TokenType::Dot, 1))
+            .ok_or(LexError::UnLexable);
+
+        let fractional = self.float_int_digits(itype);
+
+        let (first, second) = if let Ok(token) = integer {
+            (token, dot)
+        } else if let Ok(token) = dot {
+            (token, integer)
+        } else {
+            return Err(LexError::UnLexable);
+        };
+
+        if integer.or(fractional).is_err() {
+            return Err(LexError::UnLexable);
+        }
+
+        let e = if is_hex {
+            matches!(self.source.first(), Some(b'p' | b'P'))
+        } else {
+            matches!(self.source.first(), Some(b'e' | b'E'))
+        }
+        .then(|| self.token(TokenType::Identifier, 1))
+        .ok_or(LexError::UnLexable);
+
+        if dot.or(e).is_err() || is_hex && e.is_err() {
+            return Err(LexError::UnLexable);
+        }
+
+        let sign = matches!(self.source.first(), Some(b'+' | b'-'))
+            .then(|| self.token(TokenType::Plus, 1))
+            .ok_or(LexError::UnLexable);
+
+        let exponent = self.float_int_digits(TokenType::DecIntLit);
+
+        if let Some(Err(_)) = e.is_ok().then_some(exponent) {
+            return Err(LexError::UnLexable);
+        }
+
+        let fsuffix = matches!(self.source.first(), Some(b'f' | b'F' | b'l' | b'L'))
+            .then(|| self.token(TokenType::Identifier, 1))
+            .ok_or(LexError::UnLexable);
+
+        println!(
+            "(int) {:?}
+(dot)  {:?}
+(frac) {:?}
+(e)    {:?}
+(sgn)  {:?}
+(exp)  {:?}
+(suf)  {:?}",
+            first, second, fractional, e, sign, exponent, fsuffix
+        );
+        Ok(first
+            .fuse(second)
+            .fuse(fractional)
+            .fuse(e)
+            .fuse(sign)
+            .fuse(exponent)
+            .fuse(fsuffix)
+            .as_type(if is_hex {
+                TokenType::HexFloatLit
+            } else {
+                TokenType::DecFloatLit
+            }))
+    }
+
     fn float_literal(&mut self) -> Result<Token, LexError> {
-        Err(LexError::UnLexable)
+        let rst_src = self.source;
+        let rst_at = self.at;
+        let maybe_float = self.try_float();
+        if maybe_float.is_err() {
+            self.source = rst_src;
+            self.at = rst_at;
+        }
+
+        maybe_float
     }
 
     fn char_literal(&mut self) -> Result<Token, LexError> {
@@ -235,7 +338,7 @@ impl<'a> Lexer<'a> {
             .or_else(|| one_token(one).map(|ret| (ret, 1)))
     }
 
-    fn int_suffix(&mut self) -> Result<Token, LexError> {
+    fn isuffix(&mut self) -> Result<Token, LexError> {
         self.resolve_static_token(three_isuffix, two_isuffix, one_isuffix)
             .map(|(ty, len)| self.token(ty, len))
             .ok_or(LexError::UnLexable)
@@ -255,12 +358,12 @@ impl<'a> Lexer<'a> {
         self.skip_whitespace();
 
         lex!(self,
-        token: punctuator     |
+        token: float_literal  |
+               punctuator     |
                string_literal |
                identifier     |
-               int_literal    |
-               float_literal  |
-               char_literal
+               char_literal   |
+               int_literal
         );
     }
 }

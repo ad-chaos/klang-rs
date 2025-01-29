@@ -1,3 +1,5 @@
+use core::panic;
+
 use klang::{LexError, Lexer, Token, TokenType};
 use LexError::*;
 use TokenType::*;
@@ -17,24 +19,12 @@ macro_rules! t {
     ($lex:ident => $err:expr) => {
         assert_eq!($lex.next_token(), Err($err))
     };
+    (not $lex:ident => $token:pat) => {
+        assert_ne!($lex.next_token().unwrap().ty, $token)
+    };
 }
 
 macro_rules! lex {
-    (concat($($src:literal),+) => $tokens:expr) => {{
-        let source = concat!($($src),+);
-        let mut lex = Lexer::new(source.as_bytes());
-
-        let mut start = 0;
-        for (token, rtoken) in $tokens
-            .into_iter()
-            .zip(source.split_whitespace())
-        {
-            t!(lex => token at [start, rtoken.len()]);
-            start += 1 + rtoken.len();
-        }
-
-        t!(lex => EOF at [source.len(), 0]);
-    }};
     ($src:literal => $tokens:expr) => {{
         let source = $src;
         let mut lex = Lexer::new(source.as_bytes());
@@ -50,52 +40,140 @@ macro_rules! lex {
 
         t!(lex => EOF at [source.len(), 0]);
     }};
+    ($($rtok:literal => $token:ident),+, $(,)?) => {{
+        let source = [$($rtok),+].join(" ");
+        let mut lex = Lexer::new(source.as_bytes());
+
+        let mut start = 0;
+        for (token, rtoken) in [$($token),+]
+            .into_iter()
+            .zip(source.split_whitespace())
+        {
+            t!(lex => token at [start, rtoken.len()]);
+            start += 1 + rtoken.len();
+        }
+
+        t!(lex => EOF at [source.len(), 0]);
+    }};
 }
 // }}}
 
 #[test]
 fn single_byte_tokens() {
-    lex!("( ) [ ] { } ? ~ ; : , < > . - + / & | * % ^ ! # =" => [
-        LParen,   RParen, LSquare,   RSquare, LBrace, RBrace,
-        Question, Tilde,  Terminate, Colon,   Comma,  LAngle,
-        RAngle,   Dot,    Minus,     Plus,    Div,    Amp,
-        Or,       Star,   Mod,       Xor,     Bang,   Hash, Assign,
-    ]);
+    lex!(
+        "(" => LParen,
+        ")" => RParen,
+        "[" => LSquare,
+        "]" => RSquare,
+        "{" => LBrace,
+        "}" => RBrace,
+        "?" => Question,
+        "~" => Tilde,
+        ";" => Terminate,
+        ":" => Colon,
+        "," => Comma,
+        "<" => LAngle,
+        ">" => RAngle,
+        "." => Dot,
+        "-" => Minus,
+        "+" => Plus,
+        "/" => Div,
+        "&" => Amp,
+        "|" => Or,
+        "*" => Star,
+        "%" => Mod,
+        "^" => Xor,
+        "!" => Bang,
+        "#" => Hash,
+        "=" => Assign,
+    );
 }
 
 #[test]
 fn two_byte_tokens() {
-    lex!("-- ++ && || <= >= != == -> >> << += -= *= /= %= ^= &= |=" => [
-        Decr,      Incr,      LAnd,      LOr,       Leq,
-        Geq,       Neq,       Eq,        Arrow,     RShift,
-        LShift,    AddAssign, SubAssign, MulAssign, DivAssign,
-        ModAssign, XorAssign, AndAssign, OrAssign,
-    ]);
+    lex!(
+        "--" => Decr,
+        "++" => Incr,
+        "&&" => LAnd,
+        "||" => LOr,
+        "<=" => Leq,
+        ">=" => Geq,
+        "!=" => Neq,
+        "==" => Eq,
+        "->" => Arrow,
+        ">>" => RShift,
+        "<<" => LShift,
+        "+=" => AddAssign,
+        "-=" => SubAssign,
+        "*=" => MulAssign,
+        "/=" => DivAssign,
+        "%=" => ModAssign,
+        "^=" => XorAssign,
+        "&=" => AndAssign,
+        "|=" => OrAssign,
+    );
 }
 
 #[test]
 fn three_byte_tokens() {
-    lex!("... <<= >>=" => [Ellipses, LShiftAssign, RShiftAssign]);
+    lex!(
+        "..." => Ellipses,
+        "<<=" => LShiftAssign,
+        ">>=" => RShiftAssign,
+    );
 }
 
 #[test]
 fn keyword_tokens() {
-    lex!(concat(
-        "auto break case char const continue default do double else ",
-        "enum extern float for goto if inline int long register restrict ",
-        "return short signed sizeof static struct switch typedef union ",
-        "unsigned void volatile while _Bool _Complex _Imaginary"
-    ) => [
-        Auto, Break, Case, Char, Const, Continue, Default, Do, Double, Else, Enum, Extern, Float,
-        For, Goto, If, Inline, Int, Long, Register, Restrict, Return, Short, Signed, Sizeof,
-        Static, Struct, Switch, Typedef, Union, Unsigned, Void, Volatile, While, _Bool, _Complex,
-        _Imaginary,
-    ]);
+    lex!(
+        "auto" => Auto,
+        "break" => Break,
+        "case" => Case,
+        "char" => Char,
+        "const" => Const,
+        "continue" => Continue,
+        "default" => Default,
+        "do" => Do,
+        "double" => Double,
+        "else" => Else,
+        "enum" => Enum,
+        "extern" => Extern,
+        "float" => Float,
+        "for" => For,
+        "goto" => Goto,
+        "if" => If,
+        "inline" => Inline,
+        "int" => Int,
+        "long" => Long,
+        "register" => Register,
+        "restrict" => Restrict,
+        "return" => Return,
+        "short" => Short,
+        "signed" => Signed,
+        "sizeof" => Sizeof,
+        "static" => Static,
+        "struct" => Struct,
+        "switch" => Switch,
+        "typedef" => Typedef,
+        "union" => Union,
+        "unsigned" => Unsigned,
+        "void" => Void,
+        "volatile" => Volatile,
+        "while" => While,
+        "_Bool" => _Bool,
+        "_Complex" => _Complex,
+        "_Imaginary" => _Imaginary,
+    );
 }
 
 #[test]
 fn ident_tokens() {
-    lex!("__klang KLANG cogito_ergo_sum thing123" => [Identifier, Identifier, Identifier, Identifier]);
+    lex!(
+        "__klang" => Identifier,
+        "KLANG" => Identifier,
+        "cogito_ergo_sum" => Identifier,
+        "thing123" => Identifier,
+    );
 }
 
 #[test]
@@ -125,11 +203,83 @@ fn unterm_string_tokens() {
 
 #[test]
 fn int_tokens() {
-    lex!(concat(
-        "123 0xabc 0777 0X123 0Xff 0xFF ",
-        "123uL 0xabcULL 0777llU 0X123LLu 0XffL 0xFFLL"
-    ) => [
-        DecIntLit, HexIntLit, OctIntLit, HexIntLit, HexIntLit, HexIntLit,
-        DecIntLit, HexIntLit, OctIntLit, HexIntLit, HexIntLit, HexIntLit
-    ]);
+    lex!(
+        "0" => DecIntLit,
+        "1" => DecIntLit,
+        "2" => DecIntLit,
+        "3" => DecIntLit,
+        "4" => DecIntLit,
+        "5" => DecIntLit,
+        "6" => DecIntLit,
+        "7" => DecIntLit,
+        "8" => DecIntLit,
+        "9" => DecIntLit,
+        "123" => DecIntLit,
+        "123uL" => DecIntLit,
+        "0Xff" => HexIntLit,
+        "0xff" => HexIntLit,
+        "0xabcULL" => HexIntLit,
+        "0X123LLu" => HexIntLit,
+        "0XFFLL" => HexIntLit,
+        "0xFFLL" => HexIntLit,
+        "0xabc" => HexIntLit,
+        "0777llU" => OctIntLit,
+        "0777" => OctIntLit,
+    );
+}
+
+#[test]
+fn float_tokens() {
+    lex!(
+        "1.0" => DecFloatLit,
+        "0.5" => DecFloatLit,
+        "3.14" => DecFloatLit,
+        "2.718" => DecFloatLit,
+        "0.001" => DecFloatLit,
+        "1e5" => DecFloatLit,
+        "2.5e-3" => DecFloatLit,
+        "1.23e+2" => DecFloatLit,
+        "3e7" => DecFloatLit,
+        "0.0004e-2" => DecFloatLit,
+        "3.14" => DecFloatLit,
+        "0.001" => DecFloatLit,
+        "123.456e-7" => DecFloatLit,
+        ".123" => DecFloatLit,
+        "0.123" => DecFloatLit,
+        "1.0e5" => DecFloatLit,
+        "1e1" => DecFloatLit,
+        "1." => DecFloatLit,
+        "1.1" => DecFloatLit,
+        "1.e1" => DecFloatLit,
+        ".1" => DecFloatLit,
+        ".1e1" => DecFloatLit,
+        "0.e+1" => DecFloatLit,
+        "0.e+1f" => DecFloatLit,
+        "1.e1" => DecFloatLit,
+        "01.e1" => DecFloatLit,
+        "1.L" => DecFloatLit,
+        "0x1p1" => HexFloatLit,
+        "0x1.8p2" => HexFloatLit,
+        "0xA.3p-1" => HexFloatLit,
+        "0x1.2p3" => HexFloatLit,
+        "0x.1p+1" => HexFloatLit,
+        "0x.fp1F" => HexFloatLit,
+        "0x1p+1" => HexFloatLit,
+    )
+}
+
+#[test]
+fn not_float_tokens() {
+    let source = b"e2 2.3e p3 0x 0xa.af";
+    let mut lex = Lexer::new(source);
+    loop {
+        match lex.next_token() {
+            Ok(Token { ty: EOF, .. }) => break,
+            Ok(token) => {
+                assert_ne!(token.ty, DecFloatLit, "Got a {:?}", token);
+                assert_ne!(token.ty, HexFloatLit, "Got a {:?}", token);
+            }
+            Err(err) => panic!("Error while lexing! {:?}", err),
+        }
+    }
 }
