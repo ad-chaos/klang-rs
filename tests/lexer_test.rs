@@ -182,15 +182,47 @@ fn string_tokens() {
     let s2: &[u8] = br#""Another-string""#;
     let s3: &[u8] = br#""More Strings!!:O""#;
     let s4: &[u8] = br#""A string""#;
+    let s5: &[u8] = br#"L"A \\wide// string literal""#;
 
-    let source = [s1, s2, s3, s4].join(b"\t\n\r ".as_slice());
+    let tests = [s1, s2, s3, s4, s5];
+
+    let source = tests.join(b"\t\n\r ".as_slice());
 
     let mut lex = Lexer::new(&source);
 
-    t!(lex => StringLit at [0,                       s1.len()]);
-    t!(lex => StringLit at [4 + s1.len(),            s2.len()]);
-    t!(lex => StringLit at [8 + s1.len() + s2.len(), s3.len()]);
-    t!(lex => StringLit at [12 + s1.len() + s2.len() + s3.len(), s4.len()]);
+    for (i, off, len) in tests.iter().enumerate().scan((0, 0, 0), |acc, (i, x)| {
+        acc.0 = i;
+        acc.1 += acc.2;
+        acc.2 = x.len();
+        Some(*acc)
+    }) {
+        t!(lex => StringLit at [i*4 + off, len]);
+    }
+    t!(lex => EOF at [source.len(), 0]);
+}
+
+#[test]
+fn char_tokens() {
+    let s1: &[u8] = br#"' '"#;
+    let s2: &[u8] = br#"'\r'"#;
+    let s3: &[u8] = br#"'\n'"#;
+    let s4: &[u8] = br#"'abcd'"#;
+    let s5: &[u8] = br#"'\x000'"#;
+
+    let tests = [s1, s2, s3, s4, s5];
+
+    let source = tests.join(b"\t\n\r ".as_slice());
+
+    let mut lex = Lexer::new(&source);
+
+    for (i, off, len) in tests.iter().enumerate().scan((0, 0, 0), |acc, (i, x)| {
+        acc.0 = i;
+        acc.1 += acc.2;
+        acc.2 = x.len();
+        Some(*acc)
+    }) {
+        t!(lex => CharLit at [i*4 + off, len]);
+    }
     t!(lex => EOF at [source.len(), 0]);
 }
 

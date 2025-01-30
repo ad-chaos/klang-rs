@@ -1,8 +1,8 @@
 use std::{error::Error, fmt::Display};
 
 pub struct Lexer<'a> {
-    source: &'a [u8],
-    at: usize,
+    pub source: &'a [u8],
+    pub at: usize,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -21,7 +21,7 @@ impl Display for LexError {
 
 impl Error for LexError {}
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 #[rustfmt::skip]
 pub enum TokenType {
     // Keywords
@@ -165,43 +165,76 @@ impl<'a> Lexer<'a> {
         self.at += len_before - self.source.len();
     }
 
-    fn try_string(&mut self) -> Result<Token, LexError> {
-        let b'"' = self.source.iter().next().ok_or(LexError::NeedInput)? else {
-            return Err(LexError::UnLexable);
+    fn try_string(&mut self, quotechar: u8) -> Result<Token, LexError> {
+        let mut bytes = self.source.iter();
+
+        let ltype = if quotechar == b'\'' {
+            TokenType::CharLit
+        } else {
+            TokenType::StringLit
         };
-        let mut string = &self.source[1..];
+
+        let skip = match (bytes.next().ok_or(LexError::NeedInput)?, ltype) {
+            (b'\'', TokenType::CharLit) => 1,
+            (b'"', TokenType::StringLit) => 1,
+            (b'L', _) => {
+                let Some(b'"' | b'\'') = bytes.next() else {
+                    return Err(LexError::UnLexable);
+                };
+                2
+            }
+            _ => return Err(LexError::UnLexable),
+        };
+
+        let mut string = &self.source[skip..];
 
         loop {
             let end = string
                 .iter()
-                .position(|b| *b == b'"' || *b == b'\\' || *b == b'\n')
+                .position(|b| *b == quotechar || *b == b'\\' || *b == b'\n')
                 .ok_or(LexError::InvalidStringLit(self.at))?;
 
-            match string.get(end) {
-                Some(b'"') => {
+            match (string.get(end), ltype) {
+                (Some(b'"'), TokenType::StringLit) => {
                     string = &string[end..];
                     break;
                 }
-                Some(b'\\') => {
+                (Some(b'\''), TokenType::CharLit) => {
+                    string = &string[end..];
+                    break;
+                }
+                (Some(b'\\'), _) => {
                     string = string.get(end + 2..).ok_or(LexError::UnLexable)?;
                 }
                 _ => return Err(LexError::InvalidStringLit(self.at)),
             }
         }
 
-        Ok(self.token(TokenType::StringLit, self.source.len() - string.len() + 1))
+        Ok(self.token(ltype, self.source.len() - string.len() + 1))
     }
 
     fn string_literal(&mut self) -> Result<Token, LexError> {
         let rst_src = self.source;
         let rst_at = self.at;
-        let maybe_string = self.try_string();
+        let maybe_string = self.try_string(b'"');
         if maybe_string.is_err() {
             self.source = rst_src;
             self.at = rst_at;
         }
 
         maybe_string
+    }
+
+    fn char_literal(&mut self) -> Result<Token, LexError> {
+        let rst_src = self.source;
+        let rst_at = self.at;
+        let maybe_char = self.try_string(b'\'');
+        if maybe_char.is_err() {
+            self.source = rst_src;
+            self.at = rst_at;
+        }
+
+        maybe_char
     }
 
     fn float_int_digits(&mut self, itype: TokenType) -> Result<Token, LexError> {
@@ -330,10 +363,6 @@ impl<'a> Lexer<'a> {
         maybe_float
     }
 
-    fn char_literal(&mut self) -> Result<Token, LexError> {
-        Err(LexError::UnLexable)
-    }
-
     fn identifier(&mut self) -> Result<Token, LexError> {
         let c_ident_nondigit = |c: &u8| matches!(c, b'a'..=b'z' | b'A'..=b'Z' | b'_');
         let c_ident = |c: &u8| matches!(c, b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | b'_');
@@ -383,11 +412,11 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn next_token(&mut self) -> Result<Token, LexError> {
+        self.skip_whitespace();
+
         if self.source.is_empty() {
             return Ok(self.eof());
         }
-
-        self.skip_whitespace();
 
         lex!(self,
         token: float_literal  |
