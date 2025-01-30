@@ -1,3 +1,5 @@
+use std::{error::Error, fmt::Display};
+
 pub struct Lexer<'a> {
     source: &'a [u8],
     at: usize,
@@ -10,6 +12,14 @@ pub enum LexError {
     UnLexable,
     NeedInput,
 }
+
+impl Display for LexError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Error for LexError {}
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 #[rustfmt::skip]
@@ -70,6 +80,7 @@ pub enum TokenType {
 
     RShiftAssign, LShiftAssign,
 
+    AnyToken,
     EOF,
 }
 
@@ -81,6 +92,18 @@ pub struct Token {
 }
 
 impl Token {
+    pub fn empty() -> Self {
+        Self {
+            ty: TokenType::AnyToken,
+            start: 0,
+            len: 0,
+        }
+    }
+
+    pub fn is_eof(&self) -> bool {
+        self.ty == TokenType::EOF
+    }
+
     fn fuse(mut self, other: Result<Token, LexError>) -> Token {
         if let Ok(token) = other {
             self.len += token.len;
@@ -142,22 +165,43 @@ impl<'a> Lexer<'a> {
         self.at += len_before - self.source.len();
     }
 
-    fn string_literal(&mut self) -> Result<Token, LexError> {
+    fn try_string(&mut self) -> Result<Token, LexError> {
         let b'"' = self.source.iter().next().ok_or(LexError::NeedInput)? else {
             return Err(LexError::UnLexable);
         };
+        let mut string = &self.source[1..];
 
-        let end = &self.source[1..]
-            .iter()
-            .position(|b| *b == b'"' || *b == b'\n')
-            .ok_or(LexError::InvalidStringLit(self.at))?
-            + 1;
+        loop {
+            let end = string
+                .iter()
+                .position(|b| *b == b'"' || *b == b'\\' || *b == b'\n')
+                .ok_or(LexError::InvalidStringLit(self.at))?;
 
-        let Some(b'"') = self.source.get(end) else {
-            return Err(LexError::InvalidStringLit(self.at));
-        };
+            match string.get(end) {
+                Some(b'"') => {
+                    string = &string[end..];
+                    break;
+                }
+                Some(b'\\') => {
+                    string = string.get(end + 2..).ok_or(LexError::UnLexable)?;
+                }
+                _ => return Err(LexError::InvalidStringLit(self.at)),
+            }
+        }
 
-        Ok(self.token(TokenType::StringLit, end + 1))
+        Ok(self.token(TokenType::StringLit, self.source.len() - string.len() + 1))
+    }
+
+    fn string_literal(&mut self) -> Result<Token, LexError> {
+        let rst_src = self.source;
+        let rst_at = self.at;
+        let maybe_string = self.try_string();
+        if maybe_string.is_err() {
+            self.source = rst_src;
+            self.at = rst_at;
+        }
+
+        maybe_string
     }
 
     fn float_int_digits(&mut self, itype: TokenType) -> Result<Token, LexError> {
@@ -216,7 +260,9 @@ impl<'a> Lexer<'a> {
         let itype = integer
             .map(|token| token.ty)
             .unwrap_or(TokenType::DecIntLit);
-        let is_hex = matches!(itype, TokenType::HexIntLit);
+        let ftype = matches!(itype, TokenType::HexIntLit)
+            .then_some(TokenType::HexFloatLit)
+            .unwrap_or(TokenType::DecFloatLit);
 
         let dot = matches!(self.source.first(), Some(b'.'))
             .then(|| self.token(TokenType::Dot, 1))
@@ -224,19 +270,19 @@ impl<'a> Lexer<'a> {
 
         let fractional = self.float_int_digits(itype);
 
-        let (first, second) = if let Ok(token) = integer {
-            (token, dot)
-        } else if let Ok(token) = dot {
-            (token, integer)
-        } else {
-            return Err(LexError::UnLexable);
-        };
-
         if integer.or(fractional).is_err() {
             return Err(LexError::UnLexable);
         }
 
-        let e = if is_hex {
+        let (first, second) = if let Ok(token) = integer {
+            (token, dot)
+        } else if let Ok(token) = dot {
+            (token, Ok(Token::empty()))
+        } else {
+            return Err(LexError::UnLexable);
+        };
+
+        let e = if let TokenType::HexFloatLit = ftype {
             matches!(self.source.first(), Some(b'p' | b'P'))
         } else {
             matches!(self.source.first(), Some(b'e' | b'E'))
@@ -244,7 +290,7 @@ impl<'a> Lexer<'a> {
         .then(|| self.token(TokenType::Identifier, 1))
         .ok_or(LexError::UnLexable);
 
-        if dot.or(e).is_err() || is_hex && e.is_err() {
+        if dot.or(e).is_err() || ftype == TokenType::HexFloatLit && e.is_err() {
             return Err(LexError::UnLexable);
         }
 
@@ -262,16 +308,6 @@ impl<'a> Lexer<'a> {
             .then(|| self.token(TokenType::Identifier, 1))
             .ok_or(LexError::UnLexable);
 
-        println!(
-            "(int) {:?}
-(dot)  {:?}
-(frac) {:?}
-(e)    {:?}
-(sgn)  {:?}
-(exp)  {:?}
-(suf)  {:?}",
-            first, second, fractional, e, sign, exponent, fsuffix
-        );
         Ok(first
             .fuse(second)
             .fuse(fractional)
@@ -279,11 +315,7 @@ impl<'a> Lexer<'a> {
             .fuse(sign)
             .fuse(exponent)
             .fuse(fsuffix)
-            .as_type(if is_hex {
-                TokenType::HexFloatLit
-            } else {
-                TokenType::DecFloatLit
-            }))
+            .as_type(ftype))
     }
 
     fn float_literal(&mut self) -> Result<Token, LexError> {

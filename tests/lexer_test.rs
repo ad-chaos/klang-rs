@@ -178,26 +178,28 @@ fn ident_tokens() {
 
 #[test]
 fn string_tokens() {
-    let s1 = r#""A string""#;
-    let s2 = r#""Another-string""#;
-    let s3 = r#""More Strings!!:O""#;
+    let s1: &[u8] = br#"" \0 \\ \" \" ""#;
+    let s2: &[u8] = br#""Another-string""#;
+    let s3: &[u8] = br#""More Strings!!:O""#;
+    let s4: &[u8] = br#""A string""#;
 
-    let source = s1.to_string() + "\t\n\r " + s2 + "\t\n\r " + s3;
+    let source = [s1, s2, s3, s4].join(b"\t\n\r ".as_slice());
 
-    let mut lex = Lexer::new(source.as_bytes());
+    let mut lex = Lexer::new(&source);
 
     t!(lex => StringLit at [0,                       s1.len()]);
     t!(lex => StringLit at [4 + s1.len(),            s2.len()]);
     t!(lex => StringLit at [8 + s1.len() + s2.len(), s3.len()]);
+    t!(lex => StringLit at [12 + s1.len() + s2.len() + s3.len(), s4.len()]);
     t!(lex => EOF at [source.len(), 0]);
 }
 
 #[test]
 fn unterm_string_tokens() {
-    let mut lex = Lexer::new(r#""unterminated"#.as_bytes());
+    let mut lex = Lexer::new(br#""unterminated"#);
     t!(lex => InvalidStringLit(0));
 
-    let mut lex = Lexer::new("\"unterminated with new line\n\n\"".as_bytes());
+    let mut lex = Lexer::new(b"\"unterminated with new line\n\n");
     t!(lex => InvalidStringLit(0));
 }
 
