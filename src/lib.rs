@@ -1,5 +1,6 @@
 use std::{error::Error, fmt::Display};
 
+#[derive(Copy, Clone)]
 pub struct Lexer<'a> {
     pub source: &'a [u8],
     pub at: usize,
@@ -7,7 +8,7 @@ pub struct Lexer<'a> {
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum LexError {
-    UnknownToken((usize, usize)),
+    UnknownToken(usize),
     InvalidStringLit(usize),
     UnLexable,
     NeedInput,
@@ -125,7 +126,7 @@ macro_rules! lex {
             Err(err) => return Err(err)
         })*
 
-        return Err(LexError::UnknownToken(($self.at, $self.source.len())));
+        return Err(LexError::UnknownToken($self.at));
     };
 }
 
@@ -214,27 +215,23 @@ impl<'a> Lexer<'a> {
     }
 
     fn string_literal(&mut self) -> Result<Token, LexError> {
-        let rst_src = self.source;
-        let rst_at = self.at;
-        let maybe_string = self.try_string(b'"');
-        if maybe_string.is_err() {
-            self.source = rst_src;
-            self.at = rst_at;
+        let rst = *self;
+        let string = self.try_string(b'"');
+        if string.is_err() {
+            *self = rst;
         }
 
-        maybe_string
+        string
     }
 
     fn char_literal(&mut self) -> Result<Token, LexError> {
-        let rst_src = self.source;
-        let rst_at = self.at;
-        let maybe_char = self.try_string(b'\'');
-        if maybe_char.is_err() {
-            self.source = rst_src;
-            self.at = rst_at;
+        let rst = *self;
+        let chr = self.try_string(b'\'');
+        if chr.is_err() {
+            *self = rst;
         }
 
-        maybe_char
+        chr
     }
 
     fn float_int_digits(&mut self, itype: TokenType) -> Result<Token, LexError> {
@@ -352,15 +349,13 @@ impl<'a> Lexer<'a> {
     }
 
     fn float_literal(&mut self) -> Result<Token, LexError> {
-        let rst_src = self.source;
-        let rst_at = self.at;
-        let maybe_float = self.try_float();
-        if maybe_float.is_err() {
-            self.source = rst_src;
-            self.at = rst_at;
+        let rst = *self;
+        let float = self.try_float();
+        if float.is_err() {
+            *self = rst;
         }
 
-        maybe_float
+        float
     }
 
     fn identifier(&mut self) -> Result<Token, LexError> {
