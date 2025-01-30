@@ -1,0 +1,39 @@
+use std::{error::Error, time::Instant};
+
+use klang::Lexer;
+
+type AppResult = Result<(), Box<dyn Error>>;
+
+fn inflates_to(size: usize, repeats: usize) {
+    let size = size << repeats;
+    println!("File size: {:.2} MB", (size as f64 / (1024. * 1024.)));
+}
+
+fn main() -> AppResult {
+    let filename = std::env::args().nth(1).ok_or("Not enough arguments")?;
+    let mut source = std::fs::read(filename)?;
+    let orig_size = source.len();
+
+    for i in 1..10 {
+        inflates_to(orig_size, i);
+        source.extend_from_within(..);
+
+        let start = Instant::now();
+        let mut lex = Lexer::new(&source);
+        let mut ntokens = 0;
+        loop {
+            let token = lex.next_token()?;
+            if token.is_eof() {
+                break;
+            }
+            ntokens += 1;
+        }
+
+        println!(
+            "{:.2} tokens/μs\n",
+            ntokens as f64 / start.elapsed().as_micros() as f64
+        );
+    }
+
+    Ok(())
+}
