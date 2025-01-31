@@ -22,6 +22,21 @@ impl Display for LexError {
 
 impl Error for LexError {}
 
+impl Iterator for Lexer<'_> {
+    type Item = Result<Token, LexError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let ntoken = self.next_token();
+        if let Ok(Token {
+            ty: TokenType::EOF, ..
+        }) = ntoken
+        {
+            return None;
+        }
+        Some(ntoken)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 #[rustfmt::skip]
 pub enum TokenType {
