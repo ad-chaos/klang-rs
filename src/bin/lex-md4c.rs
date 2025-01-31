@@ -1,4 +1,4 @@
-use std::{error::Error, time::Instant};
+use std::{error::Error, io::Read, time::Instant};
 
 use klang::Lexer;
 
@@ -11,13 +11,20 @@ fn inflates_to(size: usize, repeats: usize) {
 
 fn main() -> AppResult {
     let filename = std::env::args().nth(1).ok_or("Not enough arguments")?;
-    let mut source = std::fs::read(filename)?;
+    let mut file = std::fs::File::open(filename)?;
+    let mut source = Vec::new();
+    file.read_to_end(&mut source)?;
     let orig_size = source.len();
 
-    for i in 1..10 {
-        inflates_to(orig_size, i);
+    const N: usize = 3;
+    for _ in 0..N {
         source.extend_from_within(..);
+    }
+    inflates_to(orig_size, N);
 
+    let start = Instant::now();
+
+    for _ in 0..10 {
         let start = Instant::now();
         let mut lex = Lexer::new(&source);
         let mut ntokens = 0;
@@ -34,6 +41,8 @@ fn main() -> AppResult {
             ntokens as f64 / start.elapsed().as_micros() as f64
         );
     }
+
+    println!("Total time: {}ms", start.elapsed().as_millis());
 
     Ok(())
 }
