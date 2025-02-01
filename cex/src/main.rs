@@ -5,6 +5,7 @@ use axum::{
 };
 use klang::{LexError, Lexer, Token};
 use tokio::time::{sleep_until, Duration, Instant};
+use tower_http::trace::TraceLayer;
 
 macro_rules! color {
     ($($token:expr => $color:expr),+ ,) => {
@@ -115,9 +116,15 @@ const RED: &str = "#ff000d";
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .init();
+
     let app = Router::new()
+        .route("/ping", get(ping))
         .route("/cex", get(page))
-        .route("/cexit", post(highlight));
+        .route("/cexit", post(highlight))
+        .layer(TraceLayer::new_for_http());
     let listener = tokio::net::TcpListener::bind("0.0.0.0:25565")
         .await
         .unwrap();
@@ -137,7 +144,7 @@ async fn highlight(body: String) -> Html<String> {
         match token {
             Ok(Token { ty, start, len }) => {
                 if old_end != start {
-                    html.push_str(&body[old_end..start].replace("\n", "<br>"));
+                    html.push_str(&body[old_end..start]);
                 }
                 html.push_str(
                     format!(
@@ -168,4 +175,8 @@ async fn highlight(body: String) -> Html<String> {
     sleep_until(Instant::now() + Duration::from_millis(10)).await;
 
     Html(html)
+}
+
+async fn ping() -> &'static str {
+    "pong"
 }
