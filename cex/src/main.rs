@@ -5,7 +5,6 @@ use axum::{
 };
 use klang::{LexError, Lexer, Token};
 use tokio::time::{sleep_until, Duration, Instant};
-use tower_http::trace::TraceLayer;
 
 macro_rules! color {
     ($($token:expr => $color:expr),+ ,) => {
@@ -116,15 +115,11 @@ const RED: &str = "#ff000d";
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .init();
-
     let app = Router::new()
         .route("/ping", get(ping))
         .route("/cex", get(page))
-        .route("/cexit", post(highlight))
-        .layer(TraceLayer::new_for_http());
+        .route("/cexit", post(highlight));
+
     let listener = tokio::net::TcpListener::bind("0.0.0.0:25565")
         .await
         .unwrap();
