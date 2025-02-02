@@ -16,7 +16,7 @@ fn main() -> AppResult {
     file.read_to_end(&mut source)?;
     let orig_size = source.len();
 
-    const N: usize = 3;
+    const N: usize = 7;
     for _ in 0..N {
         source.extend_from_within(..);
     }
@@ -24,7 +24,7 @@ fn main() -> AppResult {
 
     let start = Instant::now();
 
-    for _ in 0..10 {
+    for _ in 0..5 {
         let start = Instant::now();
         let mut lex = Lexer::new(&source);
         let mut ntokens = 0;
