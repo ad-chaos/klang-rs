@@ -133,43 +133,42 @@ async fn page() -> Html<&'static str> {
 
 async fn highlight(body: String) -> Html<String> {
     let lex = Lexer::new(body.as_bytes());
-    let mut html = String::new();
-    let mut old_end = 0;
+    let mut html: Vec<String> = vec!["<table>".into()];
     for token in lex {
+        html.push("<tr>".into());
         match token {
             Ok(Token { ty, start, len }) => {
-                if old_end != start {
-                    html.push_str(&body[old_end..start]);
-                }
-                html.push_str(
-                    format!(
-                        r#"<span style="color: {}">{}</span>"#,
-                        TOKCOLOR[ty as usize],
-                        &body[start..][..len]
-                    )
-                    .as_str(),
-                );
-                old_end = start + len;
+                html.push(format!(
+                    r#"<td style="color: {}">{}</td> <td>=></td> <td>[{:?}]</td>"#,
+                    TOKCOLOR[ty as usize],
+                    &body[start..][..len],
+                    ty
+                ));
+                continue;
             }
             Err(LexError::UnknownToken(pos)) => {
-                html.push_str(
-                    format!(
-                        r#"<span style="color: {}">{}</span>"#,
-                        RED,
-                        body.as_bytes()[pos]
-                    )
-                    .as_str(),
-                );
+                html.push(format!(
+                    r#"<td style="color: {}">{}</td> <td>=></td> <td>[{}]</td>"#,
+                    RED,
+                    body.as_bytes()[pos] as char,
+                    "UnknownToken"
+                ));
             }
             Err(err) => {
-                html.push_str(format!(r#"<span style="color: {}">{}</span>"#, RED, err).as_str());
+                html.push(format!(
+                    r#"<td style="color: {}">{}</td> <td>=></td> <td>[Error]</td>"#,
+                    RED, err
+                ));
             }
         }
+        html.push("</tr>".into());
+        break;
     }
+    html.push("</table>".into());
 
     sleep_until(Instant::now() + Duration::from_millis(10)).await;
 
-    Html(html)
+    Html(html.join(""))
 }
 
 async fn ping() -> &'static str {

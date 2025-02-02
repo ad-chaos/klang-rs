@@ -32,8 +32,17 @@
       resize: none;
     }
 
+    table {
+      font-size: 1rem;
+    }
+
+    td {
+      padding: 1px 10px;
+    }
+
     #output {
       white-space: pre;
+      overflow: scroll;
     }
 
     #input:focus {
@@ -48,9 +57,9 @@
   </head>
 
   <body>
-    <textarea id="input" class="code">hello</textarea>
+    <textarea id="input" class="code">Code</textarea>
     <div class="arrow">&rarr;</div>
-    <div id="output" class="code">world</div>
+    <div id="output" class="code">Lexed</div>
     <script>
     let code = document.getElementById("input");
     let output = document.getElementById("output");
