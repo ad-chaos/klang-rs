@@ -527,32 +527,46 @@ fn one_punctuator(p: &[u8]) -> Option<TokenType> {
     }
 }
 
-fn kw_hash(p: &[u8]) -> usize {
-    let first = unsafe { *p.get_unchecked(0) } as usize;
-    let last = unsafe { *p.get_unchecked(p.len() - 1) } as usize;
-    (10 * first + 3 * last + p.len() - 3 * (b'a' as usize)) & 0x7f
-}
-
 fn to_keyword(p: &[u8]) -> TokenType {
     use TokenType::*;
-    *[
-        Identifier, Identifier, Else, _Complex, Identifier, Identifier, Identifier, Identifier,
-        _Imaginary, Identifier, Static, Identifier, Identifier, Signed, Identifier, Identifier,
-        Identifier, Identifier, Identifier, Sizeof, Do, Char, Identifier, Identifier, Identifier,
-        Switch, Enum, Identifier, Const, Identifier, Typedef, Extern, Identifier, Return,
-        Identifier, Unsigned, Identifier, Identifier, Identifier, Identifier, Default, Void,
-        Identifier, If, Inline, Identifier, Identifier, Register, Volatile, Identifier, For,
-        Identifier, Goto, Restrict, Identifier, While, Identifier, Identifier, Float, Identifier,
-        Short, Struct, Union, Identifier, Identifier, Identifier, Identifier, Identifier,
-        Identifier, Identifier, Identifier, Identifier, Identifier, Identifier, Identifier,
-        Identifier, Identifier, Identifier, Long, Identifier, Identifier, Identifier, Identifier,
-        Identifier, Identifier, Identifier, Int, Identifier, Identifier, Identifier, Identifier,
-        Identifier, _Bool, Identifier, Identifier, Identifier, Identifier, Identifier, Identifier,
-        Identifier, Identifier, Identifier, Identifier, Identifier, Identifier, Identifier,
-        Identifier, Identifier, Identifier, Identifier, Case, Identifier, Identifier, Identifier,
-        Continue, Identifier, Identifier, Identifier, Identifier, Break, Auto, Identifier, Double,
-        Identifier, Identifier, Identifier, Identifier, Identifier,
-    ]
-    .get(kw_hash(p))
-    .unwrap_or(&Identifier)
+    match p {
+        b"auto" => Auto,
+        b"break" => Break,
+        b"case" => Case,
+        b"char" => Char,
+        b"const" => Const,
+        b"continue" => Continue,
+        b"default" => Default,
+        b"do" => Do,
+        b"double" => Double,
+        b"else" => Else,
+        b"enum" => Enum,
+        b"extern" => Extern,
+        b"float" => Float,
+        b"for" => For,
+        b"goto" => Goto,
+        b"if" => If,
+        b"inline" => Inline,
+        b"int" => Int,
+        b"long" => Long,
+        b"register" => Register,
+        b"restrict" => Restrict,
+        b"return" => Return,
+        b"short" => Short,
+        b"signed" => Signed,
+        b"sizeof" => Sizeof,
+        b"static" => Static,
+        b"struct" => Struct,
+        b"switch" => Switch,
+        b"typedef" => Typedef,
+        b"union" => Union,
+        b"unsigned" => Unsigned,
+        b"void" => Void,
+        b"volatile" => Volatile,
+        b"while" => While,
+        b"_Bool" => _Bool,
+        b"_Complex" => _Complex,
+        b"_Imaginary" => _Imaginary,
+        _ => Identifier,
+    }
 }
