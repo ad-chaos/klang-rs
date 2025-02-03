@@ -9,7 +9,6 @@ pub struct Lexer<'a> {
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum LexError {
     UnknownToken(usize),
-    InvalidStringLit(usize),
     UnLexable,
     NeedInput,
 }
@@ -53,6 +52,7 @@ pub enum TokenType {
     Else,      Register,  Union,
 
     Identifier,
+    UIdentifier,
 
     // Constants
     OctIntLit,
@@ -96,6 +96,8 @@ pub enum TokenType {
 
     RShiftAssign, LShiftAssign,
 
+    LineComment,
+    MultiComment,
     AnyToken,
     EOF,
 }
@@ -208,7 +210,7 @@ impl<'a> Lexer<'a> {
             let end = string
                 .iter()
                 .position(|b| *b == quotechar || *b == b'\\' || *b == b'\n')
-                .ok_or(LexError::InvalidStringLit(self.at))?;
+                .ok_or(LexError::UnLexable)?;
 
             match (string.get(end), ltype) {
                 (Some(b'"'), TokenType::StringLit) => {
@@ -222,7 +224,7 @@ impl<'a> Lexer<'a> {
                 (Some(b'\\'), _) => {
                     string = string.get(end + 2..).ok_or(LexError::UnLexable)?;
                 }
-                _ => return Err(LexError::InvalidStringLit(self.at)),
+                _ => return Err(LexError::UnLexable),
             }
         }
 
@@ -373,7 +375,7 @@ impl<'a> Lexer<'a> {
         float
     }
 
-    fn identifier(&mut self) -> Result<Token, LexError> {
+    fn normal_identifier(&mut self) -> Result<Token, LexError> {
         let c_ident_nondigit = |c: &u8| matches!(c, b'a'..=b'z' | b'A'..=b'Z' | b'_');
         let c_ident = |c: &u8| matches!(c, b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | b'_');
 
@@ -391,6 +393,65 @@ impl<'a> Lexer<'a> {
         }
 
         Err(LexError::UnLexable)
+    }
+
+    fn universal_identifier(&mut self) -> Result<Token, LexError> {
+        let nquads = match self.source.get(..2) {
+            Some(b"\\u") => 4,
+            Some(b"\\U") => 8,
+            _ => return Err(LexError::UnLexable),
+        };
+
+        if self.source[2..]
+            .get(..nquads)
+            .ok_or(LexError::UnLexable)?
+            .iter()
+            .all(|c| c.is_ascii_hexdigit())
+        {
+            return Ok(self.token(TokenType::UIdentifier, nquads + 2));
+        }
+
+        Err(LexError::UnLexable)
+    }
+
+    fn identifier(&mut self) -> Result<Token, LexError> {
+        let ident = self.normal_identifier();
+        if ident.is_ok() {
+            return ident;
+        }
+
+        let mut ident = self.universal_identifier()?;
+        while let Ok(token) = self.universal_identifier() {
+            ident = ident.fuse(Ok(token))
+        }
+
+        Ok(ident)
+    }
+
+    fn comments(&mut self) -> Result<Token, LexError> {
+        let ctype = match self.source.get(..2) {
+            Some(b"//") => TokenType::LineComment,
+            Some(b"/*") => TokenType::MultiComment,
+            _ => return Err(LexError::UnLexable),
+        };
+
+        let rest = &self.source[2..];
+
+        let end = match ctype {
+            TokenType::MultiComment => rest
+                .windows(2)
+                .position(|cend| cend == b"*/")
+                .map(|idx| idx + 2)
+                .ok_or(LexError::UnLexable)?,
+            TokenType::LineComment => rest
+                .windows(2)
+                .position(|cend| cend != b"\\\n" && *cend.last().unwrap() == b'\n')
+                .map(|idx| idx + 2)
+                .ok_or(LexError::UnLexable)?,
+            _ => unreachable!(),
+        };
+
+        Ok(self.token(ctype, 2 + end))
     }
 
     fn resolve_static_token(
@@ -430,10 +491,11 @@ impl<'a> Lexer<'a> {
 
         lex!(self,
         token: float_literal  |
+               comments       |
                punctuator     |
                string_literal |
-               identifier     |
                char_literal   |
+               identifier     |
                int_literal
         );
     }

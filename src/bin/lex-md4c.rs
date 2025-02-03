@@ -16,7 +16,8 @@ fn main() -> AppResult {
     file.read_to_end(&mut source)?;
     let orig_size = source.len();
 
-    const N: usize = 7;
+
+    const N: usize = 5;
     for _ in 0..N {
         source.extend_from_within(..);
     }
@@ -37,9 +38,9 @@ fn main() -> AppResult {
         }
 
         println!(
-            "{:.2} tokens/μs ({}ms)\n",
+            "{} tokens, {:.2} tokens/μs",
+            ntokens,
             ntokens as f64 / start.elapsed().as_micros() as f64,
-            start.elapsed().as_millis()
         );
     }
 

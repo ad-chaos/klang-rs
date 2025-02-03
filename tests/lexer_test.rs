@@ -173,6 +173,18 @@ fn ident_tokens() {
         "KLANG" => Identifier,
         "cogito_ergo_sum" => Identifier,
         "thing123" => Identifier,
+        "autonotakeyword" => Identifier,
+    );
+}
+
+#[test]
+fn uident_tokens() {
+    lex!(
+        "\\u1234" => UIdentifier,
+        "\\U12345678" => UIdentifier,
+        "\\uaBcD" => UIdentifier,
+        "\\UabcdEf98" => UIdentifier,
+        "\\u1234\\u5678\\UFFFFDDDD" => UIdentifier,
     );
 }
 
@@ -206,12 +218,12 @@ fn char_tokens() {
     let s1: &[u8] = br#"' '"#;
     let s2: &[u8] = br#"'\r'"#;
     let s3: &[u8] = br#"'\n'"#;
-    let s4: &[u8] = br#"'abcd'"#;
+    let s4: &[u8] = br#"L'abcd'"#;
     let s5: &[u8] = br#"'\x000'"#;
 
     let tests = [s1, s2, s3, s4, s5];
 
-    let source = tests.join(b"\t\n\r ".as_slice());
+    let source = tests.join(b" ".as_slice());
 
     let mut lex = Lexer::new(&source);
 
@@ -221,7 +233,7 @@ fn char_tokens() {
         acc.2 = x.len();
         Some(*acc)
     }) {
-        t!(lex => CharLit at [i*4 + off, len]);
+        t!(lex => CharLit at [i + off, len]);
     }
     t!(lex => EOF at [source.len(), 0]);
 }
@@ -229,10 +241,10 @@ fn char_tokens() {
 #[test]
 fn unterm_string_tokens() {
     let mut lex = Lexer::new(br#""unterminated"#);
-    t!(lex => InvalidStringLit(0));
+    t!(lex => UnknownToken(0));
 
     let mut lex = Lexer::new(b"\"unterminated with new line\n\n");
-    t!(lex => InvalidStringLit(0));
+    t!(lex => UnknownToken(0));
 }
 
 #[test]
@@ -316,4 +328,19 @@ fn not_float_tokens() {
             Err(err) => panic!("Error while lexing! {:?}", err),
         }
     }
+}
+
+#[test]
+fn comment_tokens() {
+    let s1: &[u8] = b"// a line comment\n";
+    let s2: &[u8] = b"// a\\\nline comment\n";
+    let s3: &[u8] = b"/*multi-line\ncomment\t\n*/";
+
+    let source = [s1, s2, s3].join(b"".as_slice());
+
+    let mut lex = Lexer::new(&source);
+
+    t!(lex => LineComment at [0, s1.len()]);
+    t!(lex => LineComment at [s1.len(), s2.len()]);
+    t!(lex => MultiComment at [s1.len() + s2.len(), s3.len()]);
 }
