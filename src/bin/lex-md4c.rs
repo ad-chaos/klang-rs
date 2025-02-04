@@ -16,6 +16,16 @@ fn main() -> AppResult {
     file.read_to_end(&mut source)?;
     let orig_size = source.len();
 
+    let last = *source.last().expect("zero length file");
+
+    let mut source: Vec<u8> = source
+        .windows(2)
+        .map(|b| if b == b"\\\n" { b"" } else { b })
+        .filter(|b| !b.is_empty())
+        .map(|b| b.first().unwrap())
+        .copied()
+        .collect();
+    source.push(last);
 
     const N: usize = 5;
     for _ in 0..N {

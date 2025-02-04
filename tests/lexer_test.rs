@@ -335,12 +335,14 @@ fn comment_tokens() {
     let s1: &[u8] = b"// a line comment\n";
     let s2: &[u8] = b"// a\\\nline comment\n";
     let s3: &[u8] = b"/*multi-line\ncomment\t\n*/";
+    let s4: &[u8] = b"/**/";
 
-    let source = [s1, s2, s3].join(b"".as_slice());
+    let source = [s1, s2, s3, s4].join(b"".as_slice());
 
     let mut lex = Lexer::new(&source);
 
     t!(lex => LineComment at [0, s1.len()]);
     t!(lex => LineComment at [s1.len(), s2.len()]);
     t!(lex => MultiComment at [s1.len() + s2.len(), s3.len()]);
+    t!(lex => MultiComment at [s1.len() + s2.len() + s3.len(), s4.len()]);
 }

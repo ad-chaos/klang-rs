@@ -209,7 +209,7 @@ impl<'a> Lexer<'a> {
         loop {
             let end = string
                 .iter()
-                .position(|b| *b == quotechar || *b == b'\\' || *b == b'\n')
+                .position(|&b| b == quotechar || b == b'\\' || b == b'\n')
                 .ok_or(LexError::UnLexable)?;
 
             match (string.get(end), ltype) {
@@ -271,15 +271,15 @@ impl<'a> Lexer<'a> {
     }
 
     fn int_prefixed_digits(&mut self) -> Result<Token, LexError> {
-        let fst = self.source.first().ok_or(LexError::NeedInput)?;
-        let Some(snd) = self.source.get(1) else {
+        let &fst = self.source.first().ok_or(LexError::NeedInput)?;
+        let Some(&snd) = self.source.get(1) else {
             if fst.is_ascii_digit() {
                 return Ok(self.token(TokenType::DecIntLit, 1));
             }
             return Err(LexError::UnLexable);
         };
 
-        let (itype, is_valid_digit): (TokenType, fn(&u8) -> bool) = match (*fst, *snd) {
+        let (itype, is_valid_digit): (TokenType, fn(&u8) -> bool) = match (fst, snd) {
             (b'0', b'x' | b'X') => (TokenType::HexIntLit, |c| c.is_ascii_hexdigit()),
             (b'0', b'0'..=b'7') => (TokenType::OctIntLit, |c| matches!(c, b'0'..=b'7')),
             (b'1'..=b'9', b'0'..=b'9') => (TokenType::DecIntLit, |c| c.is_ascii_digit()),
@@ -444,8 +444,8 @@ impl<'a> Lexer<'a> {
                 .map(|idx| idx + 2)
                 .ok_or(LexError::UnLexable)?,
             TokenType::LineComment => rest
-                .windows(2)
-                .position(|cend| cend != b"\\\n" && *cend.last().unwrap() == b'\n')
+                .iter()
+                .position(|&c| c == b'\n')
                 .map(|idx| idx + 2)
                 .ok_or(LexError::UnLexable)?,
             _ => unreachable!(),
